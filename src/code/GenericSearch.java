@@ -14,6 +14,10 @@ public class GenericSearch {
     private long nodesExpanded;                       // nodes chosen for expansion
     private long sequenceCounter;                     // for FIFO tie-breaking in the queue
 
+    // ---- state used by iterative deepening ----
+    private HashMap<Long, ArrayList<long[]>> visited; // key -> list of {depth, cost} already explored
+    private boolean cutoff;                           // did the depth limit cut off some branch?
+
     public long getNodesExpanded() {
         return nodesExpanded;
     }
@@ -80,5 +84,61 @@ public class GenericSearch {
         return null;   // frontier empty: no solution
     }
 
-    private Node iterativeDeepening(GenericSearchProblem problem) { return null; } // TEMP: replaced in Part 11
+    // =====================================================================
+    //  Iterative deepening search
+    // =====================================================================
+    private Node iterativeDeepening(GenericSearchProblem problem) {
+        for (int limit = 0; ; limit++) {
+            visited = new HashMap<>();
+            cutoff = false;
+            Node root = new Node(problem.getInitialState(), null, null, 0, 0);
+            Node result = depthLimited(problem, root, limit);
+            if (result != null) return result;
+            if (!cutoff) return null;   // whole space explored, nothing was cut: no solution
+        }
+    }
+
+    /** Depth-limited DFS that skips states already explored at least as cheaply and as shallowly. */
+    private Node depthLimited(GenericSearchProblem problem, Node node, int limit) {
+        if (isRedundant(node)) return null;
+
+        // Dead end: this state can provably never reach a goal (not enough energy, rope, lives or keys).
+        if (problem.heuristic(node.state) >= GenericSearchProblem.INFINITY) return null;
+
+        nodesExpanded++;
+        if (problem.goalTest(node.state)) return node;
+
+        if (node.depth == limit) {
+            // We are not allowed to go deeper. Remember if there was anything left to explore.
+            if (!problem.expand(node).isEmpty()) cutoff = true;
+            return null;
+        }
+        for (Node child : problem.expand(node)) {
+            Node result = depthLimited(problem, child, limit);
+            if (result != null) return result;
+        }
+        return null;
+    }
+
+    /**
+     * (Dead-end states are also skipped, see depthLimited.)
+     * A node is redundant if the same state was already visited in this iteration
+     * with depth <= ours AND cost <= ours (it had at least as much room and energy left).
+     * Otherwise it is recorded as visited.
+     */
+    private boolean isRedundant(Node node) {
+        long key = node.state.key();
+        ArrayList<long[]> seen = visited.get(key);
+        if (seen == null) {
+            seen = new ArrayList<>();
+            visited.put(key, seen);
+        }
+        for (long[] entry : seen) {
+            if (entry[0] <= node.depth && entry[1] <= node.pathCost) return true;
+        }
+        // forget entries that the new node makes useless, then record the new one
+        seen.removeIf(entry -> entry[0] >= node.depth && entry[1] >= node.pathCost);
+        seen.add(new long[] { node.depth, node.pathCost });
+        return false;
+    }
 }
